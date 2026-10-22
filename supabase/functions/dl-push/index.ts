@@ -1,16 +1,14 @@
 // dl-push: Web Push for Daily Light (household-meals Supabase project; separate from wb-push / push-notify).
 // Callers:
 //   * the database (pg_cron -> private.dl_send_morning -> pg_net) with header x-dl-secret:
-//       { action: 'morning', user_id, local_day }  sends the text stored in dl_morning_sends to that person
+//       { action: 'morning', person, local_day }   sends the text stored in dl_morning_sends to that person
 //       { action: 'init' }                         one-time: creates the VAPID key pair inside Vault
-//   * a signed-in member (Authorization: Bearer <user JWT>): { action: 'test' } sends to their own devices
+//   * the app (no sign-in): { action: 'test', endpoint } sends a test only to the device that owns that endpoint
 // Secrets (VAPID private key, webhook secret) live only in Supabase Vault (dl_ names); nothing secret is in the repo.
 import postgres from 'npm:postgres@3.4.5';
 import { generateVapidKeys, sendWebPush } from './webpush.js';
 
 const sql = postgres(Deno.env.get('SUPABASE_DB_URL')!, { prepare: false, max: 2, idle_timeout: 20 });
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? 'https://voydoxmxdnjnewxlwzse.supabase.co';
-const PUBLIC_API_KEY = Deno.env.get('SUPABASE_ANON_KEY') || 'sb_publishable_FO-tgfKuBTb19W8GaX1qZw_dtZRRdqY';
 const SUBJECT = 'mailto:jacoblarenwalker-max@users.noreply.github.com';
 const ALLOWED_ORIGINS = ['https://jacoblarenwalker-max.github.io', 'http://127.0.0.1:8766'];
 
@@ -69,23 +67,16 @@ async function deliver(subs: Sub[], message: Record<string, unknown>, topic?: st
   }
   return { sent, failed, removed };
 }
-const memberSubs = (userId: string) =>
-  sql`select s.id, s.endpoint, s.keys from public.dl_push_subscriptions s join public.dl_members m on m.user_id = s.user_id where s.user_id = ${userId}::uuid` as unknown as Promise<Sub[]>;
+const personSubs = (person: string) =>
+  sql`select id, endpoint, keys from public.dl_push_subscriptions where person = ${person}` as unknown as Promise<Sub[]>;
 
-async function morning(userId: string, day: string) {
-  const [r] = await sql`select title, body, dry_run from public.dl_morning_sends where user_id = ${userId}::uuid and local_day = ${day}::date`;
+async function morning(person: string, day: string) {
+  const [r] = await sql`select title, body, dry_run from public.dl_morning_sends where person = ${person} and local_day = ${day}::date`;
   if (!r) return { status: 404, body: { error: 'no morning message for that person and day' } };
-  const subs = await memberSubs(userId);
+  const subs = await personSubs(person);
   if (r.dry_run) return { status: 200, body: { dry_run: true, would_send: subs.length, title: r.title } };
   const out = subs.length ? await deliver(subs, { title: r.title, body: r.body, url: './#/today', tag: 'morning' }, 'morning') : { sent: 0, failed: 0, removed: 0 };
   return { status: 200, body: { recipients: subs.length, ...out } };
-}
-
-async function userFromToken(token: string): Promise<string | null> {
-  const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: { Authorization: `Bearer ${token}`, apikey: PUBLIC_API_KEY } });
-  if (!r.ok) return null;
-  const u = await r.json().catch(() => null);
-  return u?.id || null;
 }
 
 Deno.serve(async (req) => {
@@ -99,17 +90,13 @@ Deno.serve(async (req) => {
       const expected = await vaultSecret('dl_push_webhook_secret');
       if (!expected || !sameSecret(given, expected)) return json(req, 401, { error: 'unauthorized' });
       if (input.action === 'init') return json(req, 200, await initVapid());
-      if (input.action === 'morning' && input.user_id && input.local_day) { const r = await morning(String(input.user_id), String(input.local_day)); return json(req, r.status, r.body); }
+      if (input.action === 'morning' && input.person && input.local_day) { const r = await morning(String(input.person), String(input.local_day)); return json(req, r.status, r.body); }
       return json(req, 400, { error: 'unknown action' });
     }
-    const token = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
-    const uid = token ? await userFromToken(token) : null;
-    if (!uid) return json(req, 401, { error: 'sign in first' });
-    const [isMember] = await sql`select 1 from public.dl_members where user_id = ${uid}::uuid`;
-    if (!isMember) return json(req, 403, { error: 'not allowed' });
     if (input.action === 'test') {
-      const subs = await memberSubs(uid);
-      if (!subs.length) return json(req, 404, { error: 'no devices with notifications on' });
+      const endpoint = String(input.endpoint || '');
+      const subs = endpoint ? await (sql`select id, endpoint, keys from public.dl_push_subscriptions where endpoint = ${endpoint}` as unknown as Promise<Sub[]>) : [];
+      if (!subs.length) return json(req, 404, { error: 'Turn on notifications on this device first' });
       const out = await deliver(subs, { title: 'Daily Light', body: 'Notifications are working on this device. ☀️', url: './#/settings', tag: 'test' });
       return json(req, 200, { recipients: subs.length, ...out });
     }

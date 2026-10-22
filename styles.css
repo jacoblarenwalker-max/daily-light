@@ -169,3 +169,12 @@ textarea.serif { font-family: var(--serif); font-size: 18px; }
 @media (min-width: 400px) { .qtext { font-size: 22px; } }
 input[type=checkbox] { accent-color: var(--gold); width: 22px !important; height: 22px; transform: none !important; }
 @media (max-width: 380px) { .hello { font-size: 27px; } .qtext { font-size: 19.5px; } }
+/* who's reading */
+.picker .tag { font-size: 20px; margin-bottom: 22px; }
+.who-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.who-card { border: 1px solid var(--line); background: var(--card); border-radius: 26px; padding: 26px 10px 20px; display: flex; flex-direction: column; align-items: center; gap: 12px;
+  cursor: pointer; box-shadow: var(--shadow); animation: rise .7s var(--ease) both; transition: transform .2s var(--ease), box-shadow .2s; }
+.who-card:nth-child(2) { animation-delay: .1s; }
+.who-card:active { transform: scale(.97); }
+.avatar.big { width: 74px; height: 74px; font-size: 32px; font-family: var(--serif); font-weight: 500; box-shadow: 0 10px 24px -10px rgba(150, 80, 40, .55); }
+.who-name { font-family: var(--serif); font-size: 22px; color: var(--ink); }

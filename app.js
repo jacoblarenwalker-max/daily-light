@@ -2,11 +2,12 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, VAPID_PUBLIC_KEY, PUSH_FUNCTION } from './config.js';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-  auth: { persistSession: true, autoRefreshToken: true, storageKey: 'dl-auth' },
+  auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
 });
 const $app = document.getElementById('app');
 const TZ = 'America/Denver';
-const S = { session: null, me: null, members: [], today: [], day: null, books: [], quotes: new Map(), favs: [], insights: [], route: 'today', bookId: null, favFilter: 'all' };
+const PEOPLE = ['jacob', 'sophie'];
+const S = { person: PEOPLE.includes(localStorage.getItem('dl-person')) ? localStorage.getItem('dl-person') : null, me: null, members: [], today: [], day: null, books: [], quotes: new Map(), favs: [], insights: [], route: 'today', bookId: null, favFilter: 'all' };
 
 // ---------- helpers ----------
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -23,8 +24,8 @@ const when = (ts) => {
   if (localDay(d) === localDay(new Date(now - 864e5))) return `Yesterday · ${t}`;
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric', timeZone: TZ }) + ` · ${t}`;
 };
-const nameOf = (uid) => S.members.find((m) => m.user_id === uid)?.display_name || 'Someone';
-const otherName = () => S.members.find((m) => m.user_id !== S.me?.user_id)?.display_name || 'your spouse';
+const nameOf = (p) => S.members.find((m) => m.person === p)?.display_name || (p === 'sophie' ? 'Sophie' : p === 'jacob' ? 'Jacob' : 'Someone');
+const otherName = () => nameOf(S.person === 'jacob' ? 'sophie' : 'jacob');
 let toastT;
 function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2600); }
 const greeting = () => { const hr = +new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: TZ }).format(new Date()); return hr < 5 ? 'Peaceful night' : hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening'; };
@@ -41,10 +42,10 @@ const I = {
 
 // ---------- data ----------
 async function loadMembers() {
-  const { data, error } = await sb.from('dl_members').select('*');
+  const { data, error } = await sb.from('dl_people').select('*');
   if (error) throw error;
   S.members = data || [];
-  S.me = S.members.find((m) => m.user_id === S.session.user.id) || null;
+  S.me = S.members.find((m) => m.person === S.person) || null;
 }
 async function loadToday(day = S.day || localDay()) {
   S.day = day;
@@ -88,13 +89,13 @@ function citeHtml(q) {
 }
 const kindLabel = { scripture: 'Book of Mormon', conference: 'General Conference', book: 'From the shelf' };
 function favWho(qid) {
-  const who = S.favs.filter((f) => f.quote_id === qid).map((f) => f.user_id);
+  const who = S.favs.filter((f) => f.quote_id === qid).map((f) => f.person);
   if (!who.length) return '';
   if (who.length >= 2) return 'Loved by you both';
-  return who[0] === S.me.user_id ? '' : `${nameOf(who[0])} loves this`;
+  return who[0] === S.person ? '' : `${nameOf(who[0])} loves this`;
 }
 function quoteCard(q, opts = {}) {
-  const mine = S.favs.some((f) => f.quote_id === q.id && f.user_id === S.me.user_id);
+  const mine = S.favs.some((f) => f.quote_id === q.id && f.person === S.person);
   return h`<article class="card quote ${q.kind}" data-qid="${q.id}">
     ${opts.noLabel ? '' : h`<div class="label"><span class="dot"></span>${kindLabel[q.kind]}</div>`}
     <p class="qtext ${q.body.length > 260 ? 'long' : ''}">${esc(q.body)}</p>
@@ -104,7 +105,7 @@ function quoteCard(q, opts = {}) {
       <button class="act" data-act="insight" data-qid="${q.id}">${I.pen}<span>Insight</span></button>
       ${navigator.share ? h`<button class="act" data-act="share" data-qid="${q.id}" aria-label="Share">${I.share}</button>` : ''}
       <span class="who">${esc(favWho(q.id))}</span>
-      ${opts.deletable && q.created_by === S.me.user_id && !q.seeded ? h`<button class="act danger" data-act="delquote" data-qid="${q.id}">Delete</button>` : ''}
+      ${opts.deletable && !q.seeded ? h`<button class="act danger" data-act="delquote" data-qid="${q.id}">Delete</button>` : ''}
     </div>
   </article>`;
 }
@@ -137,7 +138,7 @@ function vBook() {
   if (!b) { location.hash = '#/shelf'; return ''; }
   const qs = (S.bookQuotes || []).filter((q) => q.book_id === b.id);
   return h`<button class="back" data-go="shelf">‹ Bookshelf</button>` + header(esc(b.author), esc(b.title), `${qs.length} ${qs.length === 1 ? 'quote' : 'quotes'}`) +
-    h`<div class="row" style="margin-bottom:16px"><button class="btn block" data-act="addquote" data-book="${b.id}">+ Add a quote</button>${b.created_by === S.me.user_id && !b.seeded ? h`<button class="btn ghost danger" data-act="delbook" data-book="${b.id}" style="flex:0 0 auto">Delete book</button>` : ''}</div>` +
+    h`<div class="row" style="margin-bottom:16px"><button class="btn block" data-act="addquote" data-book="${b.id}">+ Add a quote</button>${!b.seeded ? h`<button class="btn ghost danger" data-act="delbook" data-book="${b.id}" style="flex:0 0 auto">Delete book</button>` : ''}</div>` +
     (qs.length ? qs.map((q) => quoteCard(q, { noLabel: true, deletable: true })).join('') : '<div class="empty"><span class="glyph">📖</span>No quotes yet. Add a favorite line, word for word.</div>');
 }
 function linkedHtml(qid) {
@@ -149,9 +150,9 @@ function linkedHtml(qid) {
 }
 function vInsights() {
   const list = S.insights.map((n, i) => {
-    const nm = nameOf(n.created_by);
-    return h`<article class="card note" style="animation-delay:${Math.min(i, 8) * 0.04}s"><div class="meta"><span class="avatar ${nm[0] === 'S' ? 's' : 'j'}">${esc(nm[0])}</span><div><div class="name">${esc(nm)}</div><div class="time">${when(n.created_at)}${n.updated_at && new Date(n.updated_at) - new Date(n.created_at) > 60000 ? ' · edited' : ''}</div></div>
-      ${n.created_by === S.me.user_id ? h`<span style="margin-left:auto"><button class="act" data-act="editnote" data-id="${n.id}">Edit</button></span>` : ''}</div>
+    const nm = nameOf(n.author);
+    return h`<article class="card note" style="animation-delay:${Math.min(i, 8) * 0.04}s"><div class="meta"><span class="avatar ${n.author === 'sophie' ? 's' : 'j'}">${esc(nm[0])}</span><div><div class="name">${esc(nm)}</div><div class="time">${when(n.created_at)}${n.updated_at && new Date(n.updated_at) - new Date(n.created_at) > 60000 ? ' · edited' : ''}</div></div>
+      ${n.author === S.person ? h`<span style="margin-left:auto"><button class="act" data-act="editnote" data-id="${n.id}">Edit</button></span>` : ''}</div>
       <div class="body">${esc(n.body)}</div>${linkedHtml(n.quote_id)}</article>`;
   }).join('');
   return header('Insights', 'What we’re learning', `Shared between you and ${esc(otherName())}.`) +
@@ -159,9 +160,9 @@ function vInsights() {
     (list || '<div class="empty"><span class="glyph">✍️</span>No insights yet.<br>Write the first thought of the day.</div>');
 }
 function vFavorites() {
-  const f = S.favFilter, me = S.me.user_id;
+  const f = S.favFilter, me = S.person;
   const byQ = new Map();
-  for (const x of S.favs) { if (!byQ.has(x.quote_id)) byQ.set(x.quote_id, []); byQ.get(x.quote_id).push(x.user_id); }
+  for (const x of S.favs) { if (!byQ.has(x.quote_id)) byQ.set(x.quote_id, []); byQ.get(x.quote_id).push(x.person); }
   let ids = [...byQ.keys()];
   if (f === 'mine') ids = ids.filter((id) => byQ.get(id).includes(me));
   if (f === 'theirs') ids = ids.filter((id) => byQ.get(id).some((u) => u !== me));
@@ -176,7 +177,7 @@ function vSettings() {
   const m = S.me, th = localStorage.getItem('dl-theme') || 'auto';
   const tzs = TZS.includes(m.tz) ? TZS : [m.tz, ...TZS];
   const pushOk = 'serviceWorker' in navigator && 'PushManager' in window;
-  return h`<button class="back" data-go="today">‹ Today</button>` + header('Settings', esc(m.display_name), esc(S.session.user.email)) +
+  return h`<button class="back" data-go="today">‹ Today</button>` + header('Settings', esc(m.display_name), 'Reading on this device') +
     h`<section class="card set">
       <h3>Morning notification</h3>
       <div class="switch"><span>Send me a morning notification</span><input type="checkbox" id="s-on" ${m.notify_enabled ? 'checked' : ''} style="width:auto;transform:scale(1.4)"></div>
@@ -192,20 +193,22 @@ function vSettings() {
       <h3>Your name</h3><div class="row"><input id="s-name" value="${esc(m.display_name)}" maxlength="40"><button class="btn small" data-act="savename" style="flex:0 0 auto">Save</button></div>
       <h3 style="margin-top:22px">Appearance</h3>
       <div class="chips">${['auto', 'light', 'dark'].map((k) => h`<button class="chip ${th === k ? 'on' : ''}" data-theme-set="${k}">${k === 'auto' ? 'Match phone' : k === 'light' ? 'Morning' : 'Evening'}</button>`).join('')}</div>
-      <button class="btn ghost block" data-act="signout" style="margin-top:10px">Sign out</button>
+      <h3 style="margin-top:22px">Who’s reading here?</h3>
+      <p class="muted small">This device is set to ${esc(m.display_name)}. Your favorites, insights and morning time follow this choice.</p>
+      <button class="btn ghost block" data-act="switch">Switch to ${esc(otherName())}</button>
     </section>
     <p class="muted small" style="text-align:center">Scripture: Book of Mormon (public-domain text). Conference talks © Intellectual Reserve, Inc., quoted briefly with links to the full talks.</p>`;
 }
-function vSignIn(msg = '') {
-  return h`<div class="signin"><img class="mark" src="icon.svg?v=dl1" alt=""><h1>Daily Light</h1><p class="tag">A little light for each morning</p>
-    <form id="signin"><label class="f" for="em">Email</label><input id="em" type="email" autocomplete="username" required>
-    <label class="f" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>
-    <button class="btn block" type="submit" style="margin-top:18px">Sign in</button><div class="err" id="err">${esc(msg)}</div></form></div>`;
+function vPicker() {
+  const card = (p, name, cls) => h`<button class="who-card ${cls}" data-person="${p}"><span class="avatar big ${cls}">${name[0]}</span><span class="who-name">${name}</span></button>`;
+  return h`<div class="signin picker"><img class="mark" src="icon.svg?v=dl1" alt=""><h1>Daily Light</h1><p class="tag">Who’s reading?</p>
+    <div class="who-grid">${card('jacob', 'Jacob', 'j')}${card('sophie', 'Sophie', 's')}</div>
+    <p class="muted small" style="text-align:center;margin-top:22px">You can change this anytime in Settings.</p></div>`;
 }
 
 function render() {
-  if (!S.session) { $app.innerHTML = vSignIn(); return; }
-  if (!S.me) { $app.innerHTML = h`<div class="private"><h1>Daily Light is private</h1><p class="muted">This account isn’t one of the two allowed.</p><button class="btn ghost" data-act="signout">Sign out</button></div>`; return; }
+  if (!S.person) { $app.innerHTML = vPicker(); return; }
+  if (!S.me) { $app.innerHTML = '<div class="boot"><p>Opening…</p></div>'; return; }
   const v = { today: vToday, shelf: vShelf, book: vBook, insights: vInsights, favorites: vFavorites, settings: vSettings }[S.route] || vToday;
   $app.innerHTML = v() + tabs();
   if (S.route === 'settings') refreshPushState();
@@ -240,7 +243,7 @@ function noteSheet(note = null, quoteId = null) {
     const body = el.querySelector('#n-body').value.trim();
     if (!body) return false;
     const quote_id = el.querySelector('.pick.on')?.dataset.pick || null;
-    const { error } = note ? await sb.from('dl_insights').update({ body, quote_id }).eq('id', note.id) : await sb.from('dl_insights').insert({ body, quote_id });
+    const { error } = note ? await sb.from('dl_insights').update({ body, quote_id }).eq('id', note.id) : await sb.from('dl_insights').insert({ body, quote_id, author: S.person });
     if (error) throw error;
     await loadInsights(); toast(note ? 'Saved' : 'Shared with ' + otherName());
     if (S.route !== 'insights') location.hash = '#/insights'; else render();
@@ -259,7 +262,7 @@ function bookSheet() {
   sheet(h`<h2>Add a book</h2><label class="f" for="b-t">Title</label><input id="b-t" required maxlength="200"><label class="f" for="b-a">Author</label><input id="b-a" required maxlength="200">
     <div class="foot"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn" type="submit">Add</button></div>`,
   async (el) => {
-    const { data, error } = await sb.from('dl_books').insert({ title: el.querySelector('#b-t').value.trim(), author: el.querySelector('#b-a').value.trim() }).select().single();
+    const { data, error } = await sb.from('dl_books').insert({ title: el.querySelector('#b-t').value.trim(), author: el.querySelector('#b-a').value.trim(), added_by: S.person }).select().single();
     if (error) throw error;
     await loadBooks(); location.hash = '#/book/' + data.id; toast('Book added');
   });
@@ -272,7 +275,7 @@ function quoteSheet(bookId) {
     <div class="foot"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn" type="submit">Add</button></div>`,
   async (el) => {
     const body = el.querySelector('#q-b').value.trim().replace(/^["“]|["”]$/g, '');
-    const { error } = await sb.from('dl_quotes').insert({ kind: 'book', book_id: bookId, body, chapter: el.querySelector('#q-c').value.trim() || null });
+    const { error } = await sb.from('dl_quotes').insert({ kind: 'book', book_id: bookId, body, chapter: el.querySelector('#q-c').value.trim() || null, added_by: S.person });
     if (error) throw error;
     await loadBooks(); render(); toast('Added to the rotation');
   });
@@ -298,46 +301,41 @@ async function pushOn() {
   const reg = await swReg(); await navigator.serviceWorker.ready;
   const sub = (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64urlToBytes(VAPID_PUBLIC_KEY) }));
   const j = sub.toJSON();
-  const { error } = await sb.from('dl_push_subscriptions').upsert({ endpoint: j.endpoint, keys: j.keys, user_agent: navigator.userAgent.slice(0, 300), user_id: S.me.user_id }, { onConflict: 'endpoint' });
+  const { error } = await sb.rpc('dl_save_subscription', { p_person: S.person, p_endpoint: j.endpoint, p_keys: j.keys, p_user_agent: navigator.userAgent.slice(0, 300) });
   if (error) throw error;
   toast('Notifications on ☀️'); refreshPushState();
 }
 async function pushOff() {
   const reg = await swReg(); const sub = reg && (await reg.pushManager.getSubscription());
-  if (sub) { await sb.from('dl_push_subscriptions').delete().eq('endpoint', sub.endpoint); try { await sub.unsubscribe(); } catch {} }
+  if (sub) { await sb.rpc('dl_remove_subscription', { p_endpoint: sub.endpoint }); try { await sub.unsubscribe(); } catch {} }
   toast('Notifications off for this device'); refreshPushState();
 }
 async function pushTest() {
-  const { data, error } = await sb.functions.invoke(PUSH_FUNCTION, { body: { action: 'test' } });
+  const reg = await swReg(); const sub = reg && (await reg.pushManager.getSubscription());
+  if (!sub) return toast('Turn on notifications on this device first');
+  const { data, error } = await sb.functions.invoke(PUSH_FUNCTION, { body: { action: 'test', endpoint: sub.endpoint } });
   if (error) { let m = 'Turn on notifications first'; try { m = (await error.context.json()).error || m; } catch {} return toast(m); }
   toast(data.sent ? 'Test sent — check your notifications' : 'Couldn’t deliver the test');
 }
 
 // ---------- events ----------
-document.addEventListener('submit', async (e) => {
-  if (e.target.id !== 'signin') return;
-  e.preventDefault();
-  const err = document.getElementById('err'); err.textContent = '';
-  const btn = e.target.querySelector('button'); btn.disabled = true; btn.textContent = 'Signing in…';
-  const { error } = await sb.auth.signInWithPassword({ email: document.getElementById('em').value.trim(), password: document.getElementById('pw').value });
-  if (error) { err.textContent = error.message === 'Invalid login credentials' ? 'That email and password don’t match.' : error.message; btn.disabled = false; btn.textContent = 'Sign in'; }
-});
 document.addEventListener('click', async (e) => {
-  const t = e.target.closest('[data-act],[data-go],[data-book],[data-fav],[data-theme-set]');
+  const t = e.target.closest('[data-act],[data-go],[data-book],[data-fav],[data-theme-set],[data-person]');
   if (!t || t.closest('.sheet')) return;
   try {
+    if (t.dataset.person) { setPerson(t.dataset.person); return; }
     if (t.dataset.go) { location.hash = '#/' + t.dataset.go; return; }
     if (t.dataset.fav) { S.favFilter = t.dataset.fav; render(); return; }
     if (t.dataset.themeSet) { localStorage.setItem('dl-theme', t.dataset.themeSet); applyTheme(); render(); return; }
     const a = t.dataset.act;
     if (!a && t.dataset.book) { location.hash = '#/book/' + t.dataset.book; return; }
     if (a === 'heart') {
-      const qid = t.dataset.qid, mine = S.favs.some((f) => f.quote_id === qid && f.user_id === S.me.user_id);
-      if (mine) { S.favs = S.favs.filter((f) => !(f.quote_id === qid && f.user_id === S.me.user_id)); }
-      else { S.favs.unshift({ quote_id: qid, user_id: S.me.user_id, created_at: new Date().toISOString() }); }
+      const qid = t.dataset.qid, mine = S.favs.some((f) => f.quote_id === qid && f.person === S.person);
+      if (mine) { S.favs = S.favs.filter((f) => !(f.quote_id === qid && f.person === S.person)); }
+      else { S.favs.unshift({ quote_id: qid, person: S.person, created_at: new Date().toISOString() }); }
       render();
       if (!mine) document.querySelectorAll(`[data-act=heart][data-qid="${qid}"]`).forEach((b) => b.classList.add('pop'));
-      const { error } = mine ? await sb.from('dl_favorites').delete().eq('quote_id', qid).eq('user_id', S.me.user_id) : await sb.from('dl_favorites').insert({ quote_id: qid });
+      const { error } = mine ? await sb.from('dl_favorites').delete().eq('quote_id', qid).eq('person', S.person) : await sb.from('dl_favorites').insert({ quote_id: qid, person: S.person });
       if (error && error.code !== '23505') { toast('Couldn’t save that. Try again.'); await loadFavs(); render(); }
       return;
     }
@@ -354,14 +352,14 @@ document.addEventListener('click', async (e) => {
     if (a === 'delbook') { if (!confirm('Delete this book and its quotes?')) return; const { error } = await sb.from('dl_books').delete().eq('id', t.dataset.book); if (error) throw error; await loadBooks(); location.hash = '#/shelf'; return toast('Book deleted'); }
     if (a === 'savenotify') {
       const patch = { notify_enabled: document.getElementById('s-on').checked, notify_time: document.getElementById('s-time').value || '07:00', tz: document.getElementById('s-tz').value };
-      const { error } = await sb.from('dl_members').update(patch).eq('user_id', S.me.user_id); if (error) throw error;
+      const { error } = await sb.from('dl_people').update(patch).eq('person', S.person); if (error) throw error;
       await loadMembers(); render(); return toast(patch.notify_enabled ? `Morning notification at ${fmtTime(patch.notify_time)}` : 'Morning notification off');
     }
-    if (a === 'savename') { const v = document.getElementById('s-name').value.trim(); if (!v) return; const { error } = await sb.from('dl_members').update({ display_name: v }).eq('user_id', S.me.user_id); if (error) throw error; await loadMembers(); render(); return toast('Saved'); }
+    if (a === 'savename') { const v = document.getElementById('s-name').value.trim(); if (!v) return; const { error } = await sb.from('dl_people').update({ display_name: v }).eq('person', S.person); if (error) throw error; await loadMembers(); render(); return toast('Saved'); }
     if (a === 'pushon') return await pushOn();
     if (a === 'pushoff') return await pushOff();
     if (a === 'pushtest') return await pushTest();
-    if (a === 'signout') { await sb.auth.signOut(); return; }
+    if (a === 'switch') { if (!confirm(`Switch this device to ${otherName()}?`)) return; const reg = await swReg(); const sub = reg && (await reg.pushManager.getSubscription()); if (sub) { await sb.rpc('dl_remove_subscription', { p_endpoint: sub.endpoint }); try { await sub.unsubscribe(); } catch {} } setPerson(S.person === 'jacob' ? 'sophie' : 'jacob'); return; }
   } catch (err) { console.error(err); toast(err.message || 'Something went wrong'); }
 });
 const fmtTime = (hm) => { const [H, M] = hm.split(':').map(Number); return `${((H + 11) % 12) + 1}:${String(M).padStart(2, '0')} ${H < 12 ? 'AM' : 'PM'}`; };
@@ -372,7 +370,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', applyThe
 async function route() {
   const [, r, id] = (location.hash || '#/today').match(/^#\/([a-z]+)(?:\/([\w-]+))?/) || [, 'today'];
   S.route = r || 'today'; S.bookId = id || null;
-  if (S.session && S.me) {
+  if (S.me) {
     if (S.route === 'insights') await loadInsights().catch(() => {});
     if (S.route === 'favorites') await loadFavs().catch(() => {});
   }
@@ -387,13 +385,13 @@ function realtime() {
     try {
       if (what === 'dl_insights') await loadInsights();
       else if (what === 'dl_favorites') await loadFavs();
-      else if (what === 'dl_members') await loadMembers();
+      else if (what === 'dl_people') await loadMembers();
       else { await loadBooks(); await loadToday(S.day); }
       if (!document.querySelector('.scrim')) render();
     } catch {}
   }, 250); };
   channel = sb.channel('dl-live');
-  for (const t of ['dl_insights', 'dl_favorites', 'dl_quotes', 'dl_books', 'dl_members']) channel.on('postgres_changes', { event: '*', schema: 'public', table: t }, () => refetch(t));
+  for (const t of ['dl_insights', 'dl_favorites', 'dl_quotes', 'dl_books', 'dl_people']) channel.on('postgres_changes', { event: '*', schema: 'public', table: t }, () => refetch(t));
   channel.subscribe();
 }
 async function boot() {
@@ -412,10 +410,9 @@ document.addEventListener('visibilitychange', async () => {
 navigator.serviceWorker?.addEventListener('message', (e) => { if (e.data?.type === 'open') location.href = e.data.url; });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 
-let booted = false;
-sb.auth.onAuthStateChange((ev, session) => {
-  const was = S.session?.user?.id;
-  S.session = session;
-  if (!session) { booted = false; S.me = null; if (channel) sb.removeChannel(channel); render(); return; }
-  if (!booted || was !== session.user.id) { booted = true; setTimeout(boot, 0); }
-});
+function setPerson(p) {
+  localStorage.setItem('dl-person', p); S.person = p; S.me = null; S.favFilter = 'all';
+  if (location.hash !== '#/today') location.hash = '#/today';
+  boot();
+}
+if (S.person) boot(); else render();
