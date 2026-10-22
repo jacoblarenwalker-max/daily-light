@@ -167,3 +167,5 @@ textarea.serif { font-family: var(--serif); font-size: 18px; }
 .private h1 { font-weight: 500; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 @media (min-width: 400px) { .qtext { font-size: 22px; } }
+input[type=checkbox] { accent-color: var(--gold); width: 22px !important; height: 22px; transform: none !important; }
+@media (max-width: 380px) { .hello { font-size: 27px; } .qtext { font-size: 19.5px; } }
