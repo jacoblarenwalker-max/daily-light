@@ -1,6 +1,6 @@
 // Daily Light service worker: offline app shell + Web Push. Never caches Supabase API traffic.
-const VERSION = 'dl-v4';
-const SHELL = ['./', './index.html', './app.js?v=dl4', './styles.css?v=dl4', './theme.js?v=dl1', './config.js',
+const VERSION = 'dl-v5';
+const SHELL = ['./', './index.html', './app.js?v=dl5', './styles.css?v=dl5', './theme.js?v=dl1', './config.js',
   './manifest.webmanifest?v=dl1', './icon.svg?v=dl1', './icon-192.png?v=dl1', './apple-touch-icon.png?v=dl1', './favicon-32.png?v=dl1'];
 self.addEventListener('install', (event) => { event.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (event) => {

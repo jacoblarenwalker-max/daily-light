@@ -112,8 +112,8 @@ function quoteCard(q, opts = {}) {
 
 // ---------- screens ----------
 function header(kicker, title, sub) {
-  return h`<header class="top"><div><div class="kicker">${kicker}</div><h1 class="hello">${title}</h1>${sub ? h`<div class="sub">${sub}</div>` : ''}</div>
-    <button class="iconbtn" data-go="settings" aria-label="Settings">${I.gear}</button></header>`;
+  const gear = S.route === 'settings' ? '' : h`<button class="iconbtn" data-go="settings" aria-label="Settings">${I.gear}</button>`;
+  return h`<header class="top"><div><div class="kicker">${kicker}</div><h1 class="hello">${title}</h1>${sub ? h`<div class="sub">${sub}</div>` : ''}</div>${gear}</header>`;
 }
 function tabs() {
   const t = (id, icon, label) => h`<a href="#/${id}" class="${S.route === id || (id === 'shelf' && S.route === 'book') ? 'on' : ''}">${icon}<span>${label}</span></a>`;
@@ -192,7 +192,7 @@ function vSettings() {
     </section>
     <section class="card set">
       <h3>Your name</h3>
-      <div class="row"><input id="s-name" value="${esc(m.display_name)}" maxlength="40"><button class="btn small" data-act="savename" style="flex:0 0 auto">Save</button></div>
+      <div class="row name-row"><input id="s-name" value="${esc(m.display_name)}" maxlength="40"><button class="btn save-inline" data-act="savename">Save</button></div>
     </section>
     <section class="card set">
       <h3>Appearance</h3>
