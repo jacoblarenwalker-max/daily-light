@@ -180,23 +180,30 @@ function vSettings() {
   return h`<button class="back" data-go="today">‹ Today</button>` + header('Settings', esc(m.display_name), 'Reading on this device') +
     h`<section class="card set">
       <h3>Morning notification</h3>
-      <p class="muted small" id="push-state">${pushOk ? 'Checking this phone…' : 'This browser can’t receive notifications. On iPhone, add Daily Light to your Home Screen first (Share → Add to Home Screen), then open it from there.'}</p>
+      <p class="muted small tight" id="push-state">${pushOk ? 'Checking this phone…' : 'This browser can’t receive notifications. On iPhone, add Daily Light to your Home Screen first (Share → Add to Home Screen), then open it from there.'}</p>
       <div id="push-warn" class="warn" hidden></div>
-      <div id="push-actions"></div>
-      <label class="f" for="s-time">Time</label><input type="time" id="s-time" value="${esc(String(m.notify_time).slice(0, 5))}">
-      <label class="f" for="s-tz">Time zone</label><select id="s-tz">${tzs.map((z) => h`<option ${z === m.tz ? 'selected' : ''}>${esc(z)}</option>`).join('')}</select>
-      <p class="muted small">Each of you picks your own time. It arrives within about 5 minutes of it.</p>
-      <button class="btn ghost block" data-act="savenotify">Save time</button>
+      <div id="push-actions" class="push-actions"></div>
+      <div class="set-fields">
+        <label class="f" for="s-time">Time</label><input type="time" id="s-time" value="${esc(String(m.notify_time).slice(0, 5))}">
+        <label class="f" for="s-tz">Time zone</label><select id="s-tz">${tzs.map((z) => h`<option ${z === m.tz ? 'selected' : ''}>${esc(z)}</option>`).join('')}</select>
+        <p class="muted small tight">Each of you picks your own time. It arrives within about 5 minutes of it.</p>
+        <button class="btn ghost block" data-act="savenotify">Save time</button>
+      </div>
     </section>
     <section class="card set">
-      <h3>Your name</h3><div class="row"><input id="s-name" value="${esc(m.display_name)}" maxlength="40"><button class="btn small" data-act="savename" style="flex:0 0 auto">Save</button></div>
-      <h3 style="margin-top:22px">Appearance</h3>
-      <div class="chips">${['auto', 'light', 'dark'].map((k) => h`<button class="chip ${th === k ? 'on' : ''}" data-theme-set="${k}">${k === 'auto' ? 'Match phone' : k === 'light' ? 'Morning' : 'Evening'}</button>`).join('')}</div>
-      <h3 style="margin-top:22px">Who’s reading here?</h3>
-      <p class="muted small">This device is set to ${esc(m.display_name)}. Your favorites, insights and morning time follow this choice.</p>
+      <h3>Your name</h3>
+      <div class="row"><input id="s-name" value="${esc(m.display_name)}" maxlength="40"><button class="btn small" data-act="savename" style="flex:0 0 auto">Save</button></div>
+    </section>
+    <section class="card set">
+      <h3>Appearance</h3>
+      <div class="chips tight">${['auto', 'light', 'dark'].map((k) => h`<button class="chip ${th === k ? 'on' : ''}" data-theme-set="${k}">${k === 'auto' ? 'Match phone' : k === 'light' ? 'Morning' : 'Evening'}</button>`).join('')}</div>
+    </section>
+    <section class="card set">
+      <h3>Who’s reading here?</h3>
+      <p class="muted small tight">This device is set to ${esc(m.display_name)}. Your favorites, insights and morning time follow this choice.</p>
       <button class="btn ghost block" data-act="switch">Switch to ${esc(otherName())}</button>
     </section>
-    <p class="muted small" style="text-align:center">Scripture: Book of Mormon (public-domain text). Conference talks © Intellectual Reserve, Inc., quoted briefly with links to the full talks.</p>`;
+    <p class="muted small foot-note">Scripture: Book of Mormon (public-domain text). Conference talks © Intellectual Reserve, Inc., quoted briefly with links to the full talks.</p>`;
 }
 function vPicker() {
   const card = (p, name, cls) => h`<button class="who-card ${cls}" data-person="${p}"><span class="avatar big ${cls}">${name[0]}</span><span class="who-name">${name}</span></button>`;
