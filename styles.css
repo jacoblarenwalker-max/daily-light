@@ -139,6 +139,8 @@ textarea.serif { font-family: var(--serif); font-size: 18px; }
 .set h3 { font-family: var(--serif); font-weight: 500; font-size: 19px; margin: 14px 0 4px; }
 .switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .switch:last-child { border-bottom: 0; }
+.warn { margin: 10px 0 14px; padding: 12px 14px; border-radius: 14px; background: color-mix(in srgb, var(--gold2) 18%, var(--card)); border: 1px solid color-mix(in srgb, var(--gold) 35%, var(--line)); color: var(--ink); font-size: 14.5px; line-height: 1.45; }
+#push-actions { margin: 10px 0 6px; }
 
 /* tab bar */
 .tabs { position: fixed; z-index: 10; left: 50%; transform: translateX(-50%); bottom: calc(var(--safe-b) + 10px); width: min(520px, calc(100% - 24px));

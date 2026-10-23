@@ -180,14 +180,13 @@ function vSettings() {
   return h`<button class="back" data-go="today">‹ Today</button>` + header('Settings', esc(m.display_name), 'Reading on this device') +
     h`<section class="card set">
       <h3>Morning notification</h3>
-      <div class="switch"><span>Send me a morning notification</span><input type="checkbox" id="s-on" ${m.notify_enabled ? 'checked' : ''} style="width:auto;transform:scale(1.4)"></div>
+      <p class="muted small" id="push-state">${pushOk ? 'Checking this phone…' : 'This browser can’t receive notifications. On iPhone, add Daily Light to your Home Screen first (Share → Add to Home Screen), then open it from there.'}</p>
+      <div id="push-warn" class="warn" hidden></div>
+      <div id="push-actions"></div>
       <label class="f" for="s-time">Time</label><input type="time" id="s-time" value="${esc(String(m.notify_time).slice(0, 5))}">
       <label class="f" for="s-tz">Time zone</label><select id="s-tz">${tzs.map((z) => h`<option ${z === m.tz ? 'selected' : ''}>${esc(z)}</option>`).join('')}</select>
       <p class="muted small">Each of you picks your own time. It arrives within about 5 minutes of it.</p>
-      <button class="btn block" data-act="savenotify">Save time</button>
-      <h3 style="margin-top:22px">This device</h3>
-      <p class="muted small" id="push-state">${pushOk ? 'Checking…' : 'This browser can’t receive notifications. On iPhone, add Daily Light to your Home Screen first (Share → Add to Home Screen), then open it from there.'}</p>
-      ${pushOk ? '<div class="row"><button class="btn ghost" data-act="pushon" id="push-btn">Turn on notifications</button><button class="btn ghost" data-act="pushtest">Send a test</button></div>' : ''}
+      <button class="btn ghost block" data-act="savenotify">Save time</button>
     </section>
     <section class="card set">
       <h3>Your name</h3><div class="row"><input id="s-name" value="${esc(m.display_name)}" maxlength="40"><button class="btn small" data-act="savename" style="flex:0 0 auto">Save</button></div>
@@ -284,16 +283,51 @@ function quoteSheet(bookId) {
 // ---------- push ----------
 const b64urlToBytes = (s) => { const p = '='.repeat((4 - (s.length % 4)) % 4); const b = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(b, (c) => c.charCodeAt(0)); };
 async function swReg() { if (!('serviceWorker' in navigator)) return null; return (await navigator.serviceWorker.getRegistration()) || navigator.serviceWorker.register('sw.js'); }
+async function deviceSubscription() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
+  const reg = await swReg();
+  return reg ? await reg.pushManager.getSubscription() : null;
+}
 async function refreshPushState() {
-  const el = document.getElementById('push-state'), btn = document.getElementById('push-btn');
-  if (!el || !btn) return;
+  const el = document.getElementById('push-state');
+  const warn = document.getElementById('push-warn');
+  const actions = document.getElementById('push-actions');
+  if (!el || !actions) return;
+  const pushOk = 'serviceWorker' in navigator && 'PushManager' in window;
+  if (!pushOk) { actions.innerHTML = ''; if (warn) warn.hidden = true; return; }
   try {
-    const reg = await swReg(); const sub = reg && (await reg.pushManager.getSubscription());
-    if (Notification.permission === 'denied') { el.textContent = 'Notifications are blocked for Daily Light. Turn them on in your phone’s Settings → Notifications → Daily Light.'; btn.hidden = true; return; }
-    el.textContent = sub ? 'Notifications are on for this device.' : 'Notifications are off for this device.';
-    btn.textContent = sub ? 'Turn off on this device' : 'Turn on notifications';
-    btn.dataset.act = sub ? 'pushoff' : 'pushon';
-  } catch { el.textContent = 'Couldn’t check notifications here.'; }
+    const sub = await deviceSubscription();
+    const schedOn = !!S.me?.notify_enabled;
+    const timeLabel = fmtTime(String(S.me?.notify_time || '07:00').slice(0, 5));
+    if (Notification.permission === 'denied') {
+      el.textContent = 'Notifications are blocked for Daily Light. Turn them on in your phone’s Settings → Notifications → Daily Light.';
+      if (warn) { warn.hidden = true; warn.textContent = ''; }
+      actions.innerHTML = '';
+      return;
+    }
+    if (sub) {
+      el.textContent = `Morning notifications are on for this phone · ${timeLabel}.`;
+      if (warn) { warn.hidden = true; warn.textContent = ''; }
+      actions.innerHTML = '<div class="row"><button class="btn ghost" data-act="pushoff">Turn off on this phone</button><button class="btn ghost" data-act="pushtest">Send a test</button></div>';
+      return;
+    }
+    if (schedOn) {
+      el.textContent = `Your morning time is set for ${timeLabel}, but this phone isn’t registered to receive it.`;
+      if (warn) {
+        warn.hidden = false;
+        warn.textContent = 'Morning notifications need this phone registered. Tap the button below, then Allow when prompted.';
+      }
+      actions.innerHTML = '<button class="btn block" data-act="pushon" id="push-btn">Register this phone</button>';
+      return;
+    }
+    el.textContent = 'Morning notifications are off on this phone.';
+    if (warn) { warn.hidden = true; warn.textContent = ''; }
+    actions.innerHTML = '<button class="btn block" data-act="pushon" id="push-btn">Turn on morning notifications</button>';
+  } catch {
+    el.textContent = 'Couldn’t check notifications here.';
+    if (warn) { warn.hidden = true; warn.textContent = ''; }
+    actions.innerHTML = '';
+  }
 }
 async function pushOn() {
   const perm = await Notification.requestPermission();
@@ -303,18 +337,28 @@ async function pushOn() {
   const j = sub.toJSON();
   const { error } = await sb.rpc('dl_save_subscription', { p_person: S.person, p_endpoint: j.endpoint, p_keys: j.keys, p_user_agent: navigator.userAgent.slice(0, 300) });
   if (error) throw error;
-  toast('Notifications on ☀️'); refreshPushState();
+  // Also persist the time/tz the user may have adjusted before registering
+  const timeEl = document.getElementById('s-time'), tzEl = document.getElementById('s-tz');
+  if (timeEl && tzEl) {
+    const patch = { notify_time: timeEl.value || '07:00', tz: tzEl.value };
+    await sb.from('dl_people').update(patch).eq('person', S.person);
+  }
+  await loadMembers();
+  toast('Morning notifications on ☀️');
+  render();
 }
 async function pushOff() {
   const reg = await swReg(); const sub = reg && (await reg.pushManager.getSubscription());
   if (sub) { await sb.rpc('dl_remove_subscription', { p_endpoint: sub.endpoint }); try { await sub.unsubscribe(); } catch {} }
-  toast('Notifications off for this device'); refreshPushState();
+  await loadMembers();
+  toast('Notifications off for this phone');
+  render();
 }
 async function pushTest() {
-  const reg = await swReg(); const sub = reg && (await reg.pushManager.getSubscription());
-  if (!sub) return toast('Turn on notifications on this device first');
+  const sub = await deviceSubscription();
+  if (!sub) return toast('Register this phone for notifications first');
   const { data, error } = await sb.functions.invoke(PUSH_FUNCTION, { body: { action: 'test', endpoint: sub.endpoint } });
-  if (error) { let m = 'Turn on notifications first'; try { m = (await error.context.json()).error || m; } catch {} return toast(m); }
+  if (error) { let m = 'Register this phone first'; try { m = (await error.context.json()).error || m; } catch {} return toast(m); }
   toast(data.sent ? 'Test sent — check your notifications' : 'Couldn’t deliver the test');
 }
 
@@ -351,9 +395,9 @@ document.addEventListener('click', async (e) => {
     if (a === 'delquote') { if (!confirm('Delete this quote?')) return; const { error } = await sb.from('dl_quotes').delete().eq('id', t.dataset.qid); if (error) throw error; await loadBooks(); render(); return toast('Deleted'); }
     if (a === 'delbook') { if (!confirm('Delete this book and its quotes?')) return; const { error } = await sb.from('dl_books').delete().eq('id', t.dataset.book); if (error) throw error; await loadBooks(); location.hash = '#/shelf'; return toast('Book deleted'); }
     if (a === 'savenotify') {
-      const patch = { notify_enabled: document.getElementById('s-on').checked, notify_time: document.getElementById('s-time').value || '07:00', tz: document.getElementById('s-tz').value };
+      const patch = { notify_time: document.getElementById('s-time').value || '07:00', tz: document.getElementById('s-tz').value };
       const { error } = await sb.from('dl_people').update(patch).eq('person', S.person); if (error) throw error;
-      await loadMembers(); render(); return toast(patch.notify_enabled ? `Morning notification at ${fmtTime(patch.notify_time)}` : 'Morning notification off');
+      await loadMembers(); render(); return toast(`Morning time saved · ${fmtTime(patch.notify_time)}`);
     }
     if (a === 'savename') { const v = document.getElementById('s-name').value.trim(); if (!v) return; const { error } = await sb.from('dl_people').update({ display_name: v }).eq('person', S.person); if (error) throw error; await loadMembers(); render(); return toast('Saved'); }
     if (a === 'pushon') return await pushOn();
